@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: features
+Version: 0.1.0
+Summary: Central repository for Vindicta Platform feature testing
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+Requires-Dist: behave>=1.2.6
+
+# Features
+
+This is the central repository for all feature testing within the Vindicta Platform.
+
+Here, we coordinate, document, and manage feature requests and testing procedures across the platform.
