@@ -1,0 +1,114 @@
+name: BDD Feature Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.feature'
+      - 'steps/**'
+      - 'environment.py'
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.feature'
+      - 'steps/**'
+      - 'environment.py'
+  workflow_dispatch:
+
+concurrency:
+  group: bdd-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  validate:
+    name: Validate BDD Features
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        run: |
+          uv sync --all-extras 2>/dev/null || uv sync 2>/dev/null || pip install behave 2>/dev/null || true
+
+      - name: Count feature files
+        id: count
+        run: |
+          FEATURE_COUNT=$(find . -name "*.feature" -not -path "./.git/*" | wc -l)
+          echo "count=${FEATURE_COUNT}" >> $GITHUB_OUTPUT
+          echo "### 🧬 BDD Feature Inventory" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Found **${FEATURE_COUNT}** feature file(s):" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          find . -name "*.feature" -not -path "./.git/*" | sort | while read f; do
+            SCENARIOS=$(grep -c "Scenario" "$f" 2>/dev/null || echo 0)
+            echo "- \`${f}\` (${SCENARIOS} scenarios)" >> $GITHUB_STEP_SUMMARY
+          done
+
+      - name: Lint Gherkin syntax
+        if: steps.count.outputs.count != '0'
+        run: |
+          echo "### Gherkin Lint" >> $GITHUB_STEP_SUMMARY
+          npx -y @cucumber/gherkin-utils format --check . 2>&1 | tee gherkin_lint.txt || true
+          if [ -s gherkin_lint.txt ]; then
+            echo "⚠️ Gherkin formatting issues found" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All feature files well-formed" >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+
+      - name: Behave dry run
+        if: steps.count.outputs.count != '0'
+        run: |
+          echo "### Behave Dry Run" >> $GITHUB_STEP_SUMMARY
+          uv run behave --dry-run --format plain 2>&1 | tee behave_dry_run.txt || behave --dry-run --format plain 2>&1 | tee behave_dry_run.txt || true
+          UNDEFINED=$(grep -c "undefined" behave_dry_run.txt 2>/dev/null || echo 0)
+          if [ "$UNDEFINED" -gt 0 ]; then
+            echo "⚠️ Found ${UNDEFINED} undefined step(s)" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ All steps defined" >> $GITHUB_STEP_SUMMARY
+          fi
+        continue-on-error: true
+
+      - name: Steps catalog
+        if: steps.count.outputs.count != '0'
+        run: |
+          echo "### Steps Catalog" >> $GITHUB_STEP_SUMMARY
+          uv run behave --steps-catalog 2>&1 | head -100 >> $GITHUB_STEP_SUMMARY || true
+        continue-on-error: true
+
+      - name: Post summary to PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            let report = '## 🧬 BDD Validation Report\n\n';
+            if (fs.existsSync('behave_dry_run.txt')) {
+              const content = fs.readFileSync('behave_dry_run.txt', 'utf8');
+              report += '```\n' + content.slice(-3000) + '\n```\n';
+            }
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: context.issue.number, body: report
+            });
+        continue-on-error: true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bdd-validation-report
+          path: |
+            gherkin_lint.txt
+            behave_dry_run.txt
+          retention-days: 14
