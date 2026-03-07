@@ -2,6 +2,8 @@ from typing import Any
 from behave import given, when, then
 from unittest.mock import MagicMock
 
+import pytest
+
 # Import platform components
 from vindicta_foundation.models.economy import OperationType
 from vindicta_engine.ai.base import BaseTacticalEngine, BaseTacticalDecision
@@ -77,7 +79,7 @@ def step_impl(context):
 
 @then("the engine should return a valid evaluation")
 def step_impl(context):
-    assert context.result == 0.5
+    assert context.result == pytest.approx(0.5)
 
 
 @then('credit balance for "{agent_id}" should be reduced by "{cost:d}"')
