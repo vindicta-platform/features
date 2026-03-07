@@ -2,3 +2,11 @@
 .env
 /*.egg-info
 uv.lock
+
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+*.egg-info/
+.coverage
